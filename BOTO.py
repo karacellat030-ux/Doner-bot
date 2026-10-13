@@ -87,27 +87,23 @@ def save_data(data):
 # ==========================================
 def get_stats():
     data = load_data()
-    bugun_str = datetime.now().strftime("%Y-%m-%d")  # Örn: '2026-10-13'
+    bugun_str = datetime.now().strftime("%Y-%m-%d")
 
-    # Sadece bugüne ait Güne Başlangıç Döneri
     bugun_baslangic_doner = sum(
         g.get("adet", 0) for g in data.get("gun_baslangic", [])
         if g.get("tarih", "").startswith(bugun_str)
     )
 
-    # Sadece bugüne ait Paket Satışları
     bugun_paket = sum(
         s.get("adet", 0) for s in data.get("siparisler", []) 
         if s.get("tur") == "paket" and s.get("tarih", "").startswith(bugun_str)
     )
 
-    # Sadece bugüne ait Salon Satışları
     bugun_salon = sum(
         s.get("adet", 0) for s in data.get("siparisler", []) 
         if s.get("tur") == "salon" and s.get("tarih", "").startswith(bugun_str)
     )
 
-    # Sadece bugüne ait Fırın Ekmekleri
     bugun_firin_ekmek = sum(
         f.get("adet", 0) for f in data.get("firin_ekmekleri", []) 
         if f.get("tarih", "").startswith(bugun_str)
@@ -224,7 +220,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         db["gun_sonlari"].append(gun_raporu)
 
-        # Gün kapandığında aktif listeleri sıfırlıyoruz ki yarın güne tertemiz 0'dan başlasın
         db["siparisler"] = []
         db["firin_ekmekleri"] = []
         db["gun_baslangic"] = []
@@ -278,7 +273,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         sayi = int(text)
         if sayi <= 0:
-            await update.message.reply_text("Lütfen 0'dan büyük geçerli bir sayı girin.")
+            await update.message.reply_text("Lütfen 0'dan büyük geçerli bir sayı girin.", reply_markup=get_main_keyboard())
+            db["beklenen_islem"] = None
+            save_data(db)
             return
 
         if islem == "gun_baslangic":
@@ -339,7 +336,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     except ValueError:
-        await update.message.reply_text("⚠️ Lütfen sadece sayısal bir değer girin!")
+        db["beklenen_islem"] = None
+        save_data(db)
+        await update.message.reply_text("⚠️ Lütfen sadece sayısal bir değer girin!", reply_markup=get_main_keyboard())
 
 # ==========================================
 # 🚀 ANA ÇALIŞTIRMA BLOĞU
