@@ -47,7 +47,6 @@ ADMIN_USER_ID = 7964555286
 PAKET_FIYAT = 140
 SALON_FIYAT = 120
 
-# Dosya yolunu çalışma dizinine sabitliyoruz
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "doner_data.json")
 
@@ -56,7 +55,7 @@ DATA_FILE = os.path.join(BASE_DIR, "doner_data.json")
 # ==========================================
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"siparisler": [], "firin_ekmekleri": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": []}
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -64,10 +63,12 @@ def load_data():
                 data["firin_ekmekleri"] = []
             if "siparisler" not in data:
                 data["siparisler"] = []
+            if "gun_baslangic" not in data:
+                data["gun_baslangic"] = []
             return data
     except Exception as e:
         logger.error(f"Veri yükleme hatası: {e}")
-        return {"siparisler": [], "firin_ekmekleri": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": []}
 
 def save_data(data):
     try:
@@ -89,6 +90,12 @@ def get_stats():
     now = datetime.now()
     bugun_str = now.strftime("%Y-%m-%d")
 
+    # Bugün takılan döner miktarları
+    bugun_baslangic_doner = sum(
+        g.get("adet", 0) for g in data.get("gun_baslangic", [])
+        if g.get("tarih", "").startswith(bugun_str)
+    )
+
     toplam_paket = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "paket")
     toplam_salon = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "salon")
 
@@ -101,6 +108,7 @@ def get_stats():
     toplam_tutar = (toplam_paket * PAKET_FIYAT) + (toplam_salon * SALON_FIYAT)
 
     return {
+        "bugun_baslangic_doner": bugun_baslangic_doner,
         "toplam_paket": toplam_paket,
         "toplam_salon": toplam_salon,
         "bugun_firin_ekmek": bugun_firin_ekmek,
@@ -110,6 +118,9 @@ def get_stats():
 
 def get_main_keyboard():
     keyboard = [
+        [
+            InlineKeyboardButton("🥩 Güne Başlangıç Döner Ekle", callback_data="gun_baslangic_ekle"),
+        ],
         [
             InlineKeyboardButton("📦 Paket Ekle (140 TL)", callback_data="ekle_paket"),
             InlineKeyboardButton("🍽️ Salon Ekle (120 TL)", callback_data="ekle_salon"),
@@ -134,7 +145,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🥙 **PREMIUM VIP DÖNER & EKMEK TAKİP BOTU**\n\n"
-        "Aşağıdaki menüden paket/salon döner satışı ekleyebilir, fırından gelen ekmekleri kaydedebilir ve anlık hesapları inceleyebilirsiniz:",
+        "Aşağıdaki menüden güne başlangıç dönerini, satışları ve fırından gelen ekmekleri takip edebilirsin:",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown",
     )
@@ -149,7 +160,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
-    if data == "ekle_paket":
+    if data == "gun_baslangic_ekle":
+        context.user_data["beklenen_islem"] = "gun_baslangic"
+        await query.message.reply_text("🥩 Güne başlarken takılan döner miktarı kaç kg/adet? (Sadece sayı girin):", parse_mode="Markdown")
+    elif data == "ekle_paket":
         context.user_data["beklenen_islem"] = "paket_adet"
         await query.message.reply_text("📦 Kaç adet **PAKET** satıldı? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "ekle_salon":
@@ -163,6 +177,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         metin = (
             "📊 **DÖNER & EKMEK TAKİP RAPORU**\n"
             "-----------------------------------\n"
+            f"🥩 **Güne Başlayan Döner:** {stats['bugun_baslangic_doner']}\n"
             f"📦 **Toplam Paket Satış:** {stats['toplam_paket']} Adet\n"
             f"🍽️ **Toplam Salon Satış:** {stats['toplam_salon']} Adet\n"
             f"💰 **Toplam Ciro:** {stats['toplam_tutar']} TL\n\n"
@@ -172,19 +187,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
     elif data == "son_islemler":
         db = load_data()
+        gb_list = db.get("gun_baslangic", [])
         s_list = db.get("siparisler", [])
         f_list = db.get("firin_ekmekleri", [])
         
-        metin = "📜 **SATIŞ GEÇMİŞİ (LOGLAR):**\n"
+        metin = "📜 **İŞLEM GEÇMİŞİ (LOGLAR):**\n\n"
+        
+        metin += "🥩 **Güne Başlangıç Dönerleri:**\n"
+        if not gb_list:
+            metin += "• Kayıt yok.\n"
+        for g in reversed(gb_list[-5:]):
+            metin += f"• [{g['tarih']}] {g['adet']} Adet/Kg Takıldı\n"
+
+        metin += "\n📦 **Satış Geçmişi:**\n"
         if not s_list:
-            metin += "Henüz satış yok.\n"
-        for s in reversed(s_list[-10:]):
+            metin += "• Satış yok.\n"
+        for s in reversed(s_list[-5:]):
             metin += f"• [{s['tarih']}] {s['adet']} Adet {s['tur'].upper()} ({s['adet'] * (PAKET_FIYAT if s['tur'] == 'paket' else SALON_FIYAT)} TL)\n"
             
-        metin += "\n🥖 **FIRINDAN GELEN EKMEK LOGLARI:**\n"
+        metin += "\n🥖 **Fırın Ekmekleri:**\n"
         if not f_list:
-            metin += "Henüz ekmek kaydı yok.\n"
-        for f in reversed(f_list[-10:]):
+            metin += "• Ekmek yok.\n"
+        for f in reversed(f_list[-5:]):
             metin += f"• [{f['tarih']}] {f['adet']} Adet Ekmek Geldi\n"
             
         await query.message.reply_text(metin, reply_markup=get_main_keyboard())
@@ -207,7 +231,17 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Lütfen 0'dan büyük geçerli bir sayı girin.")
             return
 
-        if islem == "paket_adet":
+        if islem == "gun_baslangic":
+            db["gun_baslangic"].append({"adet": sayi, "tarih": simdi})
+            save_data(db)
+            await update.message.reply_text(
+                f"✅ **GÜNE BAŞLANGIÇ DÖNERİ EKLENDİ!**\n\n"
+                f"🥩 Miktar: **{sayi}**\n"
+                f"🕒 Saat: `{simdi}`",
+                reply_markup=get_main_keyboard(),
+                parse_mode="Markdown"
+            )
+        elif islem == "paket_adet":
             db["siparisler"].append({"tur": "paket", "adet": sayi, "tarih": simdi})
             save_data(db)
             tutar = sayi * PAKET_FIYAT
