@@ -54,7 +54,7 @@ DATA_FILE = os.path.join(BASE_DIR, "doner_data.json")
 # ==========================================
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": [], "beklenen_islem": None}
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -66,10 +66,12 @@ def load_data():
                 data["gun_baslangic"] = []
             if "gun_sonlari" not in data:
                 data["gun_sonlari"] = []
+            if "beklenen_islem" not in data:
+                data["beklenen_islem"] = None
             return data
     except Exception as e:
         logger.error(f"Veri yükleme hatası: {e}")
-        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": [], "beklenen_islem": None}
 
 def save_data(data):
     try:
@@ -136,18 +138,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     data = query.data
+    db = load_data()
 
     if data == "gun_baslangic_ekle":
-        context.user_data["beklenen_islem"] = "gun_baslangic"
+        db["beklenen_islem"] = "gun_baslangic"
+        save_data(db)
         await query.message.reply_text("🥩 Güne başlarken takılan döner miktarı kaç kg/adet? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "ekle_paket":
-        context.user_data["beklenen_islem"] = "paket_adet"
+        db["beklenen_islem"] = "paket_adet"
+        save_data(db)
         await query.message.reply_text("📦 Kaç adet **PAKET** satıldı? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "ekle_salon":
-        context.user_data["beklenen_islem"] = "salon_adet"
+        db["beklenen_islem"] = "salon_adet"
+        save_data(db)
         await query.message.reply_text("🍽️ Kaç adet **SALON** satıldı? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "firin_ekmek_ekle":
-        context.user_data["beklenen_islem"] = "firin_ekmek"
+        db["beklenen_islem"] = "firin_ekmek"
+        save_data(db)
         await query.message.reply_text("🥖 Fırından kaç adet **EKMEK** geldi? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "rapor_genel":
         stats = get_stats()
@@ -175,11 +182,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif data == "gunu_kapat_kesin":
-        db = load_data()
         stats = get_stats()
         simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # Gün sonu özetini kaydet
         gun_raporu = {
             "tarih": simdi,
             "baslangic_doner": stats["bugun_baslangic_doner"],
@@ -190,10 +195,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         db["gun_sonlari"].append(gun_raporu)
 
-        # Aktif gün sayaçlarını temizle
         db["siparisler"] = []
         db["firin_ekmekleri"] = []
         db["gun_baslangic"] = []
+        db["beklenen_islem"] = None
         save_data(db)
 
         metin = (
@@ -211,7 +216,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "iptal":
         await query.message.reply_text("❌ İşlem iptal edildi.", reply_markup=get_main_keyboard())
     elif data == "son_islemler":
-        db = load_data()
         gs_list = db.get("gun_sonlari", [])
         
         metin = "📜 **GEÇMİŞ GÜN SONU RAPORLARI:**\n\n"
@@ -228,12 +232,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    islem = context.user_data.get("beklenen_islem")
+    db = load_data()
+    islem = db.get("beklenen_islem")
+    
     if not islem:
         return
 
     text = update.message.text.strip()
-    db = load_data()
     simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     try:
@@ -244,6 +249,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if islem == "gun_baslangic":
             db["gun_baslangic"].append({"adet": sayi, "tarih": simdi})
+            db["beklenen_islem"] = None
             save_data(db)
             await update.message.reply_text(
                 f"✅ **GÜNE BAŞLANGIÇ DÖNERİ EKLENDİ!**\n\n"
@@ -254,6 +260,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif islem == "paket_adet":
             db["siparisler"].append({"tur": "paket", "adet": sayi, "tarih": simdi})
+            db["beklenen_islem"] = None
             save_data(db)
             tutar = sayi * PAKET_FIYAT
             await update.message.reply_text(
@@ -266,6 +273,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif islem == "salon_adet":
             db["siparisler"].append({"tur": "salon", "adet": sayi, "tarih": simdi})
+            db["beklenen_islem"] = None
             save_data(db)
             tutar = sayi * SALON_FIYAT
             await update.message.reply_text(
@@ -278,6 +286,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif islem == "firin_ekmek":
             db["firin_ekmekleri"].append({"adet": sayi, "tarih": simdi})
+            db["beklenen_islem"] = None
             save_data(db)
             
             bugun_toplam = sum(f.get("adet", 0) for f in db["firin_ekmekleri"])
@@ -291,7 +300,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
 
-        context.user_data["beklenen_islem"] = None
     except ValueError:
         await update.message.reply_text("⚠️ Lütfen sadece sayısal bir değer girin!")
 
