@@ -126,6 +126,10 @@ def get_main_keyboard():
 # 🤖 BOT KOMUTLARI & MENÜ
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = load_data()
+    db["beklenen_islem"] = None
+    save_data(db)
+    
     await update.message.reply_text(
         "🥙 **PREMIUM VIP DÖNER & EKMEK TAKİP BOTU**\n\n"
         "Aşağıdaki menüden güne başlangıç dönerini, satışları, fırından gelen ekmekleri takip edebilir veya günü kapatabilirsiniz:",
@@ -157,167 +161,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(db)
         await query.message.reply_text("🥖 Fırından kaç adet **EKMEK** geldi? (Sadece sayı girin):", parse_mode="Markdown")
     elif data == "rapor_genel":
-        stats = get_stats()
-        metin = (
-            "📊 **ANLIK DÖNER & EKMEK TAKİP RAPORU**\n"
-            "-----------------------------------\n"
-            f"🥩 **Güne Başlayan Döner:** {stats['bugun_baslangic_doner']}\n"
-            f"📦 **Satılan Paket:** {stats['toplam_paket']} Adet ({stats['toplam_paket'] * PAKET_FIYAT} TL)\n"
-            f"🍽️ **Satılan Salon:** {stats['toplam_salon']} Adet ({stats['toplam_salon'] * SALON_FIYAT} TL)\n"
-            f"💰 **Toplam Ciro:** {stats['toplam_tutar']} TL\n\n"
-            f"🥖 **Gelen Fırın Ekmek:** {stats['toplam_firin_ekmek']} Adet"
-        )
-        await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
-    elif data == "gunu_kapat_onay":
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Evet, Günü Kapat ve Sıfırla", callback_data="gunu_kapat_kesin"),
-                InlineKeyboardButton("❌ İptal Et", callback_data="iptal"),
-            ]
-        ]
-        await query.message.reply_text(
-            "⚠️ **GÜNÜ KAPATMAK İSTEDİĞİNİZE EMİN MİSİNİZ?**\n\n"
-            "Günün tüm satış ve ekmek sayaçları sıfırlanacak ve rapor olarak kaydedilecektir.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-    elif data == "gunu_kapat_kesin":
-        stats = get_stats()
-        simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        gun_raporu = {
-            "tarih": simdi,
-            "baslangic_doner": stats["bugun_baslangic_doner"],
-            "paket": stats["toplam_paket"],
-            "salon": stats["toplam_salon"],
-            "firin_ekmek": stats["toplam_firin_ekmek"],
-            "ciro": stats["toplam_tutar"]
-        }
-        db["gun_sonlari"].append(gun_raporu)
-
-        db["siparisler"] = []
-        db["firin_ekmekleri"] = []
-        db["gun_baslangic"] = []
         db["beklenen_islem"] = None
         save_data(db)
-
+        stats = get_stats()
         metin = (
-            "🌙 **GÜN BAŞARIYLA KAPATILDI & SIFIRLANDI!**\n"
-            "-----------------------------------\n"
-            f"🕒 **Kapanış Tarihi:** `{simdi}`\n"
-            f"🥩 **Takılan Döner:** {gun_raporu['baslangic_doner']}\n"
-            f"📦 **Satılan Paket:** {gun_raporu['paket']} Adet\n"
-            f"🍽️ **Satılan Salon:** {gun_raporu['salon']} Adet\n"
-            f"🥖 **Gelen Ekmek:** {gun_raporu['firin_ekmek']} Adet\n"
-            f"💰 **TOPLAM GÜNLÜK CİRO:** {gun_raporu['ciro']} TL\n\n"
-            "✨ *Sayaçlar yeni gün için sıfırlandı. Hayırlı işler!*"
-        )
-        await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
-    elif data == "iptal":
-        await query.message.reply_text("❌ İşlem iptal edildi.", reply_markup=get_main_keyboard())
-    elif data == "son_islemler":
-        gs_list = db.get("gun_sonlari", [])
-        
-        metin = "📜 **GEÇMİŞ GÜN SONU RAPORLARI:**\n\n"
-        if not gs_list:
-            metin += "Henüz kapatılmış gün kaydı yok.\n"
-        for gs in reversed(gs_list[-10:]):
-            metin += (
-                f"📅 **[{gs['tarih']}]**\n"
-                f"• Paket: {gs['paket']} | Salon: {gs['salon']} | Ekmek: {gs['firin_ekmek']}\n"
-                f"• Ciro: {gs['ciro']} TL\n"
-                f"-----------------------------------\n"
-            )
-            
-        await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
-
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db = load_data()
-    islem = db.get("beklenen_islem")
-    
-    if not islem:
-        return
-
-    text = update.message.text.strip()
-    simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    try:
-        sayi = int(text)
-        if sayi <= 0:
-            await update.message.reply_text("Lütfen 0'dan büyük geçerli bir sayı girin.")
-            return
-
-        if islem == "gun_baslangic":
-            db["gun_baslangic"].append({"adet": sayi, "tarih": simdi})
-            db["beklenen_islem"] = None
-            save_data(db)
-            await update.message.reply_text(
-                f"✅ **GÜNE BAŞLANGIÇ DÖNERİ EKLENDİ!**\n\n"
-                f"🥩 Miktar: **{sayi}**\n"
-                f"🕒 Saat: `{simdi}`",
-                reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
-            )
-        elif islem == "paket_adet":
-            db["siparisler"].append({"tur": "paket", "adet": sayi, "tarih": simdi})
-            db["beklenen_islem"] = None
-            save_data(db)
-            tutar = sayi * PAKET_FIYAT
-            await update.message.reply_text(
-                f"✅ **PAKET SATIŞI EKLENDİ!**\n\n"
-                f"📦 Adet: **{sayi}**\n"
-                f"💰 Tutar: **{tutar} TL**\n"
-                f"🕒 Saat: `{simdi}`",
-                reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
-            )
-        elif islem == "salon_adet":
-            db["siparisler"].append({"tur": "salon", "adet": sayi, "tarih": simdi})
-            db["beklenen_islem"] = None
-            save_data(db)
-            tutar = sayi * SALON_FIYAT
-            await update.message.reply_text(
-                f"✅ **SALON SATIŞI EKLENDİ!**\n\n"
-                f"🍽️ Adet: **{sayi}**\n"
-                f"💰 Tutar: **{tutar} TL**\n"
-                f"🕒 Saat: `{simdi}`",
-                reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
-            )
-        elif islem == "firin_ekmek":
-            db["firin_ekmekleri"].append({"adet": sayi, "tarih": simdi})
-            db["beklenen_islem"] = None
-            save_data(db)
-            
-            bugun_toplam = sum(f.get("adet", 0) for f in db["firin_ekmekleri"])
-            
-            await update.message.reply_text(
-                f"🥖 **FIRINDAN EKMEK EKLENDİ!**\n\n"
-                f"➕ Gelen: **{sayi} Adet**\n"
-                f"📅 **Bugün Gelen Toplam Ekmek:** **{bugun_toplam} Adet**\n"
-                f"🕒 Saat: `{simdi}`",
-                reply_markup=get_main_keyboard(),
-                parse_mode="Markdown"
-            )
-
-    except ValueError:
-        await update.message.reply_text("⚠️ Lütfen sadece sayısal bir değer girin!")
-
-# ==========================================
-# 🚀 ANA ÇALIŞTIRMA BLOĞU
-# ==========================================
-def main():
-    keep_alive()
-    logger.info("Flask arka plan web sunucusu başlatıldı.")
-
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-
-    logger.info("Bot başlatılıyor...")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+            "📊 **
