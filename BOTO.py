@@ -54,7 +54,7 @@ DATA_FILE = os.path.join(BASE_DIR, "doner_data.json")
 # ==========================================
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": []}
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -64,10 +64,12 @@ def load_data():
                 data["siparisler"] = []
             if "gun_baslangic" not in data:
                 data["gun_baslangic"] = []
+            if "gun_sonlari" not in data:
+                data["gun_sonlari"] = []
             return data
     except Exception as e:
         logger.error(f"Veri yükleme hatası: {e}")
-        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": []}
+        return {"siparisler": [], "firin_ekmekleri": [], "gun_baslangic": [], "gun_sonlari": []}
 
 def save_data(data):
     try:
@@ -83,30 +85,17 @@ def save_data(data):
 # ==========================================
 def get_stats():
     data = load_data()
-    now = datetime.now()
-    bugun_str = now.strftime("%Y-%m-%d")
 
-    bugun_baslangic_doner = sum(
-        g.get("adet", 0) for g in data.get("gun_baslangic", [])
-        if g.get("tarih", "").startswith(bugun_str)
-    )
-
+    bugun_baslangic_doner = sum(g.get("adet", 0) for g in data.get("gun_baslangic", []))
     toplam_paket = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "paket")
     toplam_salon = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "salon")
-
-    bugun_firin_ekmek = sum(
-        f.get("adet", 0) for f in data.get("firin_ekmekleri", []) 
-        if f.get("tarih", "").startswith(bugun_str)
-    )
     toplam_firin_ekmek = sum(f.get("adet", 0) for f in data.get("firin_ekmekleri", []))
-
     toplam_tutar = (toplam_paket * PAKET_FIYAT) + (toplam_salon * SALON_FIYAT)
 
     return {
         "bugun_baslangic_doner": bugun_baslangic_doner,
         "toplam_paket": toplam_paket,
         "toplam_salon": toplam_salon,
-        "bugun_firin_ekmek": bugun_firin_ekmek,
         "toplam_firin_ekmek": toplam_firin_ekmek,
         "toplam_tutar": toplam_tutar,
     }
@@ -122,21 +111,22 @@ def get_main_keyboard():
         ],
         [
             InlineKeyboardButton("🥖 Fırın Ekmek Ekle", callback_data="firin_ekmek_ekle"),
-            InlineKeyboardButton("📊 Günlük / Genel Durum", callback_data="rapor_genel"),
+            InlineKeyboardButton("📊 Anlık Durum Raporu", callback_data="rapor_genel"),
         ],
         [
+            InlineKeyboardButton("🌙 Günü Kapat (Sıfırla)", callback_data="gunu_kapat_onay"),
             InlineKeyboardButton("📜 Tüm İşlem Logları", callback_data="son_islemler"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
-# 🤖 BOT KOMUTLARI & MENÜ (HERKESE AÇIK)
+# 🤖 BOT KOMUTLARI & MENÜ
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🥙 **PREMIUM VIP DÖNER & EKMEK TAKİP BOTU**\n\n"
-        "Aşağıdaki menüden güne başlangıç dönerini, satışları ve fırından gelen ekmekleri takip edebilirsin:",
+        "Aşağıdaki menüden güne başlangıç dönerini, satışları, fırından gelen ekmekleri takip edebilir veya günü kapatabilirsiniz:",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown",
     )
@@ -162,43 +152,80 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "rapor_genel":
         stats = get_stats()
         metin = (
-            "📊 **DÖNER & EKMEK TAKİP RAPORU**\n"
+            "📊 **ANLIK DÖNER & EKMEK TAKİP RAPORU**\n"
             "-----------------------------------\n"
             f"🥩 **Güne Başlayan Döner:** {stats['bugun_baslangic_doner']}\n"
-            f"📦 **Toplam Paket Satış:** {stats['toplam_paket']} Adet\n"
-            f"🍽️ **Toplam Salon Satış:** {stats['toplam_salon']} Adet\n"
+            f"📦 **Satılan Paket:** {stats['toplam_paket']} Adet ({stats['toplam_paket'] * PAKET_FIYAT} TL)\n"
+            f"🍽️ **Satılan Salon:** {stats['toplam_salon']} Adet ({stats['toplam_salon'] * SALON_FIYAT} TL)\n"
             f"💰 **Toplam Ciro:** {stats['toplam_tutar']} TL\n\n"
-            f"🥖 **Bugün Fırından Gelen Ekmek:** {stats['bugun_firin_ekmek']} Adet\n"
-            f"🥖 **Toplam Fırın Ekmek (Genel):** {stats['toplam_firin_ekmek']} Adet"
+            f"🥖 **Gelen Fırın Ekmek:** {stats['toplam_firin_ekmek']} Adet"
         )
         await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
+    elif data == "gunu_kapat_onay":
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Evet, Günü Kapat ve Sıfırla", callback_data="gunu_kapat_kesin"),
+                InlineKeyboardButton("❌ İptal Et", callback_data="iptal"),
+            ]
+        ]
+        await query.message.reply_text(
+            "⚠️ **GÜNÜ KAPATMAK İSTEDİĞİNİZE EMİN MİSİNİZ?**\n\n"
+            "Günün tüm satış ve ekmek sayaçları sıfırlanacak ve rapor olarak kaydedilecektir.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    elif data == "gunu_kapat_kesin":
+        db = load_data()
+        stats = get_stats()
+        simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Gün sonu özetini kaydet
+        gun_raporu = {
+            "tarih": simdi,
+            "baslangic_doner": stats["bugun_baslangic_doner"],
+            "paket": stats["toplam_paket"],
+            "salon": stats["toplam_salon"],
+            "firin_ekmek": stats["toplam_firin_ekmek"],
+            "ciro": stats["toplam_tutar"]
+        }
+        db["gun_sonlari"].append(gun_raporu)
+
+        # Aktif gün sayaçlarını temizle
+        db["siparisler"] = []
+        db["firin_ekmekleri"] = []
+        db["gun_baslangic"] = []
+        save_data(db)
+
+        metin = (
+            "🌙 **GÜN BAŞARIYLA KAPATILDI & SIFIRLANDI!**\n"
+            "-----------------------------------\n"
+            f"🕒 **Kapanış Tarihi:** `{simdi}`\n"
+            f"🥩 **Takılan Döner:** {gun_raporu['baslangic_doner']}\n"
+            f"📦 **Satılan Paket:** {gun_raporu['paket']} Adet\n"
+            f"🍽️ **Satılan Salon:** {gun_raporu['salon']} Adet\n"
+            f"🥖 **Gelen Ekmek:** {gun_raporu['firin_ekmek']} Adet\n"
+            f"💰 **TOPLAM GÜNLÜK CİRO:** {gun_raporu['ciro']} TL\n\n"
+            "✨ *Sayaçlar yeni gün için sıfırlandı. Hayırlı işler!*"
+        )
+        await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
+    elif data == "iptal":
+        await query.message.reply_text("❌ İşlem iptal edildi.", reply_markup=get_main_keyboard())
     elif data == "son_islemler":
         db = load_data()
-        gb_list = db.get("gun_baslangic", [])
-        s_list = db.get("siparisler", [])
-        f_list = db.get("firin_ekmekleri", [])
+        gs_list = db.get("gun_sonlari", [])
         
-        metin = "📜 **İŞLEM GEÇMİŞİ (LOGLAR):**\n\n"
-        
-        metin += "🥩 **Güne Başlangıç Dönerleri:**\n"
-        if not gb_list:
-            metin += "• Kayıt yok.\n"
-        for g in reversed(gb_list[-5:]):
-            metin += f"• [{g['tarih']}] {g['adet']} Adet/Kg Takıldı\n"
-
-        metin += "\n📦 **Satış Geçmişi:**\n"
-        if not s_list:
-            metin += "• Satış yok.\n"
-        for s in reversed(s_list[-5:]):
-            metin += f"• [{s['tarih']}] {s['adet']} Adet {s['tur'].upper()} ({s['adet'] * (PAKET_FIYAT if s['tur'] == 'paket' else SALON_FIYAT)} TL)\n"
+        metin = "📜 **GEÇMİŞ GÜN SONU RAPORLARI:**\n\n"
+        if not gs_list:
+            metin += "Henüz kapatılmış gün kaydı yok.\n"
+        for gs in reversed(gs_list[-10:]):
+            metin += (
+                f"📅 **[{gs['tarih']}]**\n"
+                f"• Paket: {gs['paket']} | Salon: {gs['salon']} | Ekmek: {gs['firin_ekmek']}\n"
+                f"• Ciro: {gs['ciro']} TL\n"
+                f"-----------------------------------\n"
+            )
             
-        metin += "\n🥖 **Fırın Ekmekleri:**\n"
-        if not f_list:
-            metin += "• Ekmek yok.\n"
-        for f in reversed(f_list[-5:]):
-            metin += f"• [{f['tarih']}] {f['adet']} Adet Ekmek Geldi\n"
-            
-        await query.message.reply_text(metin, reply_markup=get_main_keyboard())
+        await query.message.reply_text(metin, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     islem = context.user_data.get("beklenen_islem")
@@ -253,11 +280,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db["firin_ekmekleri"].append({"adet": sayi, "tarih": simdi})
             save_data(db)
             
-            bugun_str = datetime.now().strftime("%Y-%m-%d")
-            bugun_toplam = sum(
-                f.get("adet", 0) for f in db["firin_ekmekleri"] 
-                if f.get("tarih", "").startswith(bugun_str)
-            )
+            bugun_toplam = sum(f.get("adet", 0) for f in db["firin_ekmekleri"])
             
             await update.message.reply_text(
                 f"🥖 **FIRINDAN EKMEK EKLENDİ!**\n\n"
