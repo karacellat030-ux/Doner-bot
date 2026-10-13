@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import logging
 import os
@@ -46,10 +46,13 @@ ADMIN_USER_ID = 7964555286
 
 PAKET_FIYAT = 140
 SALON_FIYAT = 120
-DATA_FILE = "doner_data.json"
+
+# Dosya yolunu çalışma dizinine sabitliyoruz
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, "doner_data.json")
 
 # ==========================================
-# 📁 VERİ TABANI / KALICI LOG İŞLEMLERİ
+# 📁 VERİ TABANI / KALICI DOSYA İŞLEMLERİ
 # ==========================================
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -59,6 +62,8 @@ def load_data():
             data = json.load(f)
             if "firin_ekmekleri" not in data:
                 data["firin_ekmekleri"] = []
+            if "siparisler" not in data:
+                data["siparisler"] = []
             return data
     except Exception as e:
         logger.error(f"Veri yükleme hatası: {e}")
@@ -68,6 +73,8 @@ def save_data(data):
     try:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
     except Exception as e:
         logger.error(f"Veri kaydetme hatası: {e}")
 
@@ -85,7 +92,6 @@ def get_stats():
     toplam_paket = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "paket")
     toplam_salon = sum(s.get("adet", 0) for s in data.get("siparisler", []) if s.get("tur") == "salon")
 
-    # Bugün gelen fırın ekmekleri
     bugun_firin_ekmek = sum(
         f.get("adet", 0) for f in data.get("firin_ekmekleri", []) 
         if f.get("tarih", "").startswith(bugun_str)
@@ -229,7 +235,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db["firin_ekmekleri"].append({"adet": sayi, "tarih": simdi})
             save_data(db)
             
-            # Günlük toplam fırın ekmek sayısını hesapla
             bugun_str = datetime.now().strftime("%Y-%m-%d")
             bugun_toplam = sum(
                 f.get("adet", 0) for f in db["firin_ekmekleri"] 
