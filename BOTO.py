@@ -102,4 +102,121 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("📦 Paket Ekle", callback_data="ekle_paket"),
-            InlineKeyboardButton("🍽️ Salon Ekle", callback_data
+            InlineKeyboardButton("🍽️ Salon Ekle", callback_data="ekle_salon"),
+        ],
+        [
+            InlineKeyboardButton("💵 Ödeme Yapıldı", callback_data="odeme_yap"),
+            InlineKeyboardButton("📊 Rapor / Durum", callback_data="rapor"),
+        ],
+        [InlineKeyboardButton("📜 Son İşlemler", callback_data="son_islemler")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "🥙 **VIP Döner Takip Botuna Hoş Geldin Reis!**\nAşağıdaki menüden işlemini seçebilirsin:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(query.from_user.id):
+        await query.message.reply_text("⛔ Yetkiniz yok.")
+        return
+
+    data = query.data
+
+    if data == "ekle_paket":
+        context.user_data["beklenen_islem"] = "paket_adet"
+        await query.message.reply_text("📦 Kaç adet **PAKET** döner eklensin? (Sayı girin):", parse_mode="Markdown")
+    elif data == "ekle_salon":
+        context.user_data["beklenen_islem"] = "salon_adet"
+        await query.message.reply_text("🍽️ Kaç adet **SALON** döner eklensin? (Sayı girin):", parse_mode="Markdown")
+    elif data == "odeme_yap":
+        context.user_data["beklenen_islem"] = "odeme_miktar"
+        await query.message.reply_text("💵 Ne kadar **ÖDEME** yapıldı? (TL miktarını sayı olarak girin):", parse_mode="Markdown")
+    elif data == "rapor":
+        stats = get_stats()
+        metin = (
+            "📊 **DÖNER TAKİP RAPORU**\n\n"
+            f"📦 **Paket Döner:** {stats['paket']} Adet ({stats['paket'] * PAKET_FIYAT} TL)\n"
+            f"🍽️ **Salon Döner:** {stats['salon']} Adet ({stats['salon'] * SALON_FIYAT} TL)\n"
+            f"-----------------------------------\n"
+            f"💰 **Toplam Tutar:** {stats['tutar']} TL\n"
+            f"✅ **Ödenen Miktar:** {stats['odenen']} TL\n"
+            f"⚠️ **Kalan Borç:** {stats['borc']} TL"
+        )
+        await query.message.reply_text(metin, parse_mode="Markdown")
+    elif data == "son_islemler":
+        db = load_data()
+        s_list = db["siparisler"][-5:]
+        o_list = db["odemeler"][-5:]
+        
+        metin = "📜 **SON 5 SİPARİŞ:**\n"
+        if not s_list:
+            metin += "Henüz sipariş yok.\n"
+        for s in reversed(s_list):
+            metin += f"• {s['tarih']} - {s['adet']} Adet {s['tur'].upper()}\n"
+            
+        metin += "\n💵 **SON 5 ÖDEME:**\n"
+        if not o_list:
+            metin += "Henüz ödeme yok.\n"
+        for o in reversed(o_list):
+            metin += f"• {o['tarih']} - {o['miktar']} TL\n"
+            
+        await query.message.reply_text(metin)
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    islem = context.user_data.get("beklenen_islem")
+    if not islem:
+        return
+
+    text = update.message.text.strip()
+    db = load_data()
+    simdi = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    try:
+        sayi = int(text)
+        if sayi <= 0:
+            await update.message.reply_text("Lütfen 0'dan büyük bir sayı girin.")
+            return
+
+        if islem == "paket_adet":
+            db["siparisler"].append({"tur": "paket", "adet": sayi, "tarih": simdi})
+            save_data(db)
+            await update.message.reply_text(f"✅ {sayi} adet **PAKET** döner kaydedildi!", parse_mode="Markdown")
+        elif islem == "salon_adet":
+            db["siparisler"].append({"tur": "salon", "adet": sayi, "tarih": simdi})
+            save_data(db)
+            await update.message.reply_text(f"✅ {sayi} adet **SALON** döner kaydedildi!", parse_mode="Markdown")
+        elif islem == "odeme_miktar":
+            db["odemeler"].append({"miktar": sayi, "tarih": simdi})
+            save_data(db)
+            await update.message.reply_text(f"✅ {sayi} TL **ÖDEME** kaydedildi!", parse_mode="Markdown")
+
+        context.user_data["beklenen_islem"] = None
+    except ValueError:
+        await update.message.reply_text("⚠️ Lütfen sadece geçerli bir sayı girin!")
+
+# ==========================================
+# 🚀 ANA ÇALIŞTIRMA BLOĞU
+# ==========================================
+def main():
+    keep_alive()
+    logger.info("Flask arka plan web sunucusu başlatıldı.")
+
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    logger.info("Bot başlatılıyor...")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
