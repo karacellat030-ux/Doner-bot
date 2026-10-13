@@ -42,7 +42,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "8898839173:AAFS5DVcWsL5JOQdwrkWrPUu4JoaTrf_h4U"
-ADMIN_USER_ID = 7964555286
 
 PAKET_FIYAT = 140
 SALON_FIYAT = 120
@@ -79,9 +78,6 @@ def save_data(data):
     except Exception as e:
         logger.error(f"Veri kaydetme hatası: {e}")
 
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_USER_ID
-
 # ==========================================
 # 📊 HESAPLAMA & ANALİZ
 # ==========================================
@@ -90,7 +86,6 @@ def get_stats():
     now = datetime.now()
     bugun_str = now.strftime("%Y-%m-%d")
 
-    # Bugün takılan döner miktarları
     bugun_baslangic_doner = sum(
         g.get("adet", 0) for g in data.get("gun_baslangic", [])
         if g.get("tarih", "").startswith(bugun_str)
@@ -136,13 +131,9 @@ def get_main_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
-# 🤖 BOT KOMUTLARI & MENÜ
+# 🤖 BOT KOMUTLARI & MENÜ (HERKESE AÇIK)
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Bu botu kullanma yetkiniz yok.")
-        return
-
     await update.message.reply_text(
         "🥙 **PREMIUM VIP DÖNER & EKMEK TAKİP BOTU**\n\n"
         "Aşağıdaki menüden güne başlangıç dönerini, satışları ve fırından gelen ekmekleri takip edebilirsin:",
@@ -153,10 +144,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    if not is_admin(query.from_user.id):
-        await query.message.reply_text("⛔ Yetkiniz yok.")
-        return
 
     data = query.data
 
@@ -214,9 +201,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(metin, reply_markup=get_main_keyboard())
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-
     islem = context.user_data.get("beklenen_islem")
     if not islem:
         return
